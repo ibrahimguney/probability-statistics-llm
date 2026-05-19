@@ -1,0 +1,5 @@
+{"instruction": "Olasılık nedir?", "input": "", "output": "Olasılık, bir olayın gerçekleşme ihtimalini sayısal olarak ifade eden değerdir. 0 ile 1 arasında değer alır."}
+{"instruction": "Örnek uzay nedir?", "input": "", "output": "Örnek uzay, bir deney sonucunda ortaya çıkabilecek tüm mümkün sonuçların kümesidir."}
+{"instruction": "Olay nedir?", "input": "", "output": "Olay, örnek uzayın bir alt kümesidir."}
+{"instruction": "Koşullu olasılık nedir?", "input": "", "output": "Koşullu olasılık, bir olayın başka bir olayın gerçekleştiği bilindiğinde gerçekleşme olasılığıdır. P(A|B)=P(A∩B)/P(B) şeklinde hesaplanır."}
+{"instruction": "Beklenen değer nedir?", "input": "", "output": "Beklenen değer, bir rassal değişkenin uzun dönem ortalama değeridir. Kesikli durumda E(X)=ΣxP(X=x) formülüyle hesaplanır."}
