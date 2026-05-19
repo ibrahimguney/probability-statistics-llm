@@ -5,6 +5,8 @@ import streamlit as st
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from llm_helper import generate_llm_answer
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PATH = BASE_DIR / "data" / "probability_statistics_qa_structured.jsonl"
@@ -35,7 +37,8 @@ def make_search_text(item):
             item.get("level", ""),
             item.get("type", ""),
             item.get("instruction", ""),
-            item.get("input", "")
+            item.get("input", ""),
+            item.get("output", "")
         ]
     )
 
@@ -55,21 +58,19 @@ def find_best_answer(question, data, vectorizer, vectors):
 
 
 st.set_page_config(
-    page_title="Olasılık-İstatistik Öğretici Asistan",
+    page_title="Olasılık-İstatistik LLM Asistanı",
     page_icon="📊",
     layout="centered"
 )
 
-st.title("📊 Olasılık-İstatistik Öğretici Asistan")
+st.title("📊 Olasılık-İstatistik LLM Asistanı")
 
 st.write(
-    "Bu uygulama, olasılık ve istatistik konularında yapılandırılmış "
-    "bir soru-cevap veri seti üzerinden çalışır."
+    "Bu uygulama önce kendi yapılandırılmış veri setimizde en yakın bilgiyi bulur, "
+    "sonra LLM kullanarak daha doğal ve öğretici bir cevap üretir."
 )
 
 data = load_dataset()
-search_texts = [make_search_text(item) for item in data]
-vectorizer, vectors = build_search_engine(search_texts)
 
 topics = sorted(set(item["topic"] for item in data))
 levels = sorted(set(item["level"] for item in data))
@@ -92,6 +93,11 @@ selected_type = st.sidebar.selectbox(
     ["Tümü"] + types
 )
 
+use_llm = st.sidebar.checkbox(
+    "LLM ile cevabı zenginleştir",
+    value=True
+)
+
 filtered_data = data
 
 if selected_topic != "Tümü":
@@ -105,7 +111,8 @@ if selected_type != "Tümü":
 
 st.sidebar.write("Toplam kayıt:", len(data))
 st.sidebar.write("Filtrelenmiş kayıt:", len(filtered_data))
-st.sidebar.write("Yöntem: TF-IDF + Cosine Similarity")
+st.sidebar.write("Arama: TF-IDF + Cosine Similarity")
+st.sidebar.write("Cevap üretimi: OpenAI Responses API")
 
 question = st.text_input(
     "Sorunuzu yazın:",
@@ -115,36 +122,41 @@ question = st.text_input(
 if st.button("Cevapla"):
     if question.strip() == "":
         st.warning("Lütfen bir soru yazın.")
+    elif len(filtered_data) == 0:
+        st.warning("Seçilen filtrelerde kayıt yok.")
     else:
-        if len(filtered_data) == 0:
-            st.warning("Seçilen filtrelerde kayıt yok.")
-        else:
-            filtered_search_texts = [make_search_text(item) for item in filtered_data]
-            filtered_vectorizer, filtered_vectors = build_search_engine(filtered_search_texts)
+        filtered_search_texts = [make_search_text(item) for item in filtered_data]
+        filtered_vectorizer, filtered_vectors = build_search_engine(filtered_search_texts)
 
-            best_item, score = find_best_answer(
-                question,
-                filtered_data,
-                filtered_vectorizer,
-                filtered_vectors
+        best_item, score = find_best_answer(
+            question,
+            filtered_data,
+            filtered_vectorizer,
+            filtered_vectors
+        )
+
+        if best_item is None:
+            st.warning(
+                "Bu soruya henüz veri setimizde güçlü bir cevap yok. "
+                "Bu konuyu yeni veri olarak ekleyebiliriz."
             )
-
-            if best_item is None:
-                st.warning(
-                    "Bu soruya henüz veri setimizde güçlü bir cevap yok. "
-                    "Bu konuyu yeni veri olarak ekleyebiliriz."
-                )
-                st.write("Benzerlik skoru:", round(score, 3))
+            st.write("Benzerlik skoru:", round(score, 3))
+        else:
+            if use_llm:
+                with st.spinner("LLM cevabı hazırlanıyor..."):
+                    final_answer = generate_llm_answer(question, best_item)
             else:
-                st.subheader("Cevap")
-                st.write(best_item["output"])
+                final_answer = best_item["output"]
 
-                st.subheader("Eşleşen Kayıt")
-                st.write("Konu:", best_item["topic"])
-                st.write("Seviye:", best_item["level"])
-                st.write("Cevap tipi:", best_item["type"])
-                st.write("Eşleşen soru:", best_item["instruction"])
-                st.write("Benzerlik skoru:", round(score, 3))
+            st.subheader("Cevap")
+            st.write(final_answer)
+
+            st.subheader("Kaynak Veri Seti Kaydı")
+            st.write("Konu:", best_item["topic"])
+            st.write("Seviye:", best_item["level"])
+            st.write("Cevap tipi:", best_item["type"])
+            st.write("Eşleşen soru:", best_item["instruction"])
+            st.write("Benzerlik skoru:", round(score, 3))
 
 st.divider()
 
