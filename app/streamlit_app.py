@@ -7,7 +7,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_PATH = BASE_DIR / "data" / "probability_statistics_qa.jsonl"
+DATA_PATH = BASE_DIR / "data" / "probability_statistics_qa_structured.jsonl"
 
 
 @st.cache_data
@@ -22,29 +22,36 @@ def load_dataset():
 
 
 @st.cache_resource
-def build_search_engine(questions):
+def build_search_engine(search_texts):
     vectorizer = TfidfVectorizer()
-    question_vectors = vectorizer.fit_transform(questions)
+    vectors = vectorizer.fit_transform(search_texts)
+    return vectorizer, vectors
 
-    return vectorizer, question_vectors
+
+def make_search_text(item):
+    return " ".join(
+        [
+            item.get("topic", ""),
+            item.get("level", ""),
+            item.get("type", ""),
+            item.get("instruction", ""),
+            item.get("input", "")
+        ]
+    )
 
 
-def find_best_answer(question, data, vectorizer, question_vectors):
+def find_best_answer(question, data, vectorizer, vectors):
     user_vector = vectorizer.transform([question])
-    similarities = cosine_similarity(user_vector, question_vectors)[0]
+    similarities = cosine_similarity(user_vector, vectors)[0]
 
     best_index = similarities.argmax()
     best_score = similarities[best_index]
+    best_item = data[best_index]
 
     if best_score < 0.20:
-        return (
-            "Bu soruya henüz veri setimizde güçlü bir cevap yok. "
-            "Bu konuyu veri setine ekleyebiliriz.",
-            best_score,
-            None
-        )
+        return None, best_score
 
-    return data[best_index]["output"], best_score, data[best_index]["instruction"]
+    return best_item, best_score
 
 
 st.set_page_config(
@@ -56,55 +63,92 @@ st.set_page_config(
 st.title("📊 Olasılık-İstatistik Öğretici Asistan")
 
 st.write(
-    "Bu uygulama, olasılık ve istatistik konularında hazırlanmış "
-    "küçük bir soru-cevap veri seti üzerinden çalışır."
+    "Bu uygulama, olasılık ve istatistik konularında yapılandırılmış "
+    "bir soru-cevap veri seti üzerinden çalışır."
 )
 
 data = load_dataset()
-questions = [item["instruction"] for item in data]
-vectorizer, question_vectors = build_search_engine(questions)
+search_texts = [make_search_text(item) for item in data]
+vectorizer, vectors = build_search_engine(search_texts)
 
-st.sidebar.title("Proje Bilgisi")
-st.sidebar.write("Veri setindeki örnek sayısı:", len(data))
+topics = sorted(set(item["topic"] for item in data))
+levels = sorted(set(item["level"] for item in data))
+types = sorted(set(item["type"] for item in data))
+
+st.sidebar.title("Filtreler")
+
+selected_topic = st.sidebar.selectbox(
+    "Konu",
+    ["Tümü"] + topics
+)
+
+selected_level = st.sidebar.selectbox(
+    "Seviye",
+    ["Tümü"] + levels
+)
+
+selected_type = st.sidebar.selectbox(
+    "Cevap tipi",
+    ["Tümü"] + types
+)
+
+filtered_data = data
+
+if selected_topic != "Tümü":
+    filtered_data = [item for item in filtered_data if item["topic"] == selected_topic]
+
+if selected_level != "Tümü":
+    filtered_data = [item for item in filtered_data if item["level"] == selected_level]
+
+if selected_type != "Tümü":
+    filtered_data = [item for item in filtered_data if item["type"] == selected_type]
+
+st.sidebar.write("Toplam kayıt:", len(data))
+st.sidebar.write("Filtrelenmiş kayıt:", len(filtered_data))
 st.sidebar.write("Yöntem: TF-IDF + Cosine Similarity")
-st.sidebar.write("Durum: İlk prototip")
 
 question = st.text_input(
     "Sorunuzu yazın:",
-    placeholder="Örneğin: Koşullu olasılık nedir?"
+    placeholder="Örneğin: Binom dağılımının varyansı nedir?"
 )
 
 if st.button("Cevapla"):
     if question.strip() == "":
         st.warning("Lütfen bir soru yazın.")
     else:
-        answer, score, matched_question = find_best_answer(
-            question,
-            data,
-            vectorizer,
-            question_vectors
-        )
+        if len(filtered_data) == 0:
+            st.warning("Seçilen filtrelerde kayıt yok.")
+        else:
+            filtered_search_texts = [make_search_text(item) for item in filtered_data]
+            filtered_vectorizer, filtered_vectors = build_search_engine(filtered_search_texts)
 
-        st.subheader("Cevap")
-        st.write(answer)
+            best_item, score = find_best_answer(
+                question,
+                filtered_data,
+                filtered_vectorizer,
+                filtered_vectors
+            )
 
-        st.subheader("Benzerlik Bilgisi")
-        st.write("Benzerlik skoru:", round(score, 3))
+            if best_item is None:
+                st.warning(
+                    "Bu soruya henüz veri setimizde güçlü bir cevap yok. "
+                    "Bu konuyu yeni veri olarak ekleyebiliriz."
+                )
+                st.write("Benzerlik skoru:", round(score, 3))
+            else:
+                st.subheader("Cevap")
+                st.write(best_item["output"])
 
-        if matched_question is not None:
-            st.write("Eşleşen soru:", matched_question)
+                st.subheader("Eşleşen Kayıt")
+                st.write("Konu:", best_item["topic"])
+                st.write("Seviye:", best_item["level"])
+                st.write("Cevap tipi:", best_item["type"])
+                st.write("Eşleşen soru:", best_item["instruction"])
+                st.write("Benzerlik skoru:", round(score, 3))
 
 st.divider()
 
-st.subheader("Örnek Sorular")
+st.subheader("Veri Setinden Örnek Sorular")
 
-example_questions = [
-    "Olasılık nedir?",
-    "Koşullu olasılık nedir?",
-    "Beklenen değer nedir?",
-    "Örnek uzay nedir?",
-    "Olay nedir?"
-]
-
-for ex in example_questions:
-    st.code(ex)
+for item in filtered_data[:10]:
+    st.code(item["instruction"])
