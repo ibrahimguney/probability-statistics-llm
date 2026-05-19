@@ -1,6 +1,6 @@
 import streamlit as st
 
-from llm_helper import generate_llm_answer
+from llm_helper import generate_llm_answer, generate_questions
 from retriever import load_vector_store, retrieve_top_k
 
 
@@ -15,16 +15,20 @@ st.set_page_config(
     layout="centered"
 )
 
-st.title("📊 Olasılık-İstatistik RAG Asistanı")
+st.title("📊 Olasılık-İstatistik Öğretici Platformu")
 
 st.write(
-    "Bu uygulama, yapılandırılmış olasılık-istatistik veri setinden "
-    "embedding tabanlı arama yapar ve bulunan kaynaklara göre LLM cevabı üretir."
+    "Bu uygulama iki bölümden oluşur: RAG tabanlı konu asistanı ve "
+    "olasılık-istatistik soru üretici modülü."
 )
+
 
 # Sohbet geçmişi
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+if "generated_questions" not in st.session_state:
+    st.session_state.generated_questions = ""
 
 
 # Vektör veritabanını yükle
@@ -36,7 +40,7 @@ except FileNotFoundError:
     vector_store_ready = False
 
 
-# Sidebar ayarları
+# Sidebar
 st.sidebar.title("Ayarlar")
 
 top_k = st.sidebar.slider(
@@ -72,58 +76,73 @@ if vector_store_ready:
     st.sidebar.write("Toplam kayıt:", len(metadata))
     st.sidebar.write("Arama: OpenAI Embedding + Cosine Similarity")
 else:
-    st.error(
-        "Embedding dosyaları bulunamadı. Önce şu komutu çalıştırın:\n\n"
-        "`python app\\build_embeddings.py`"
-    )
+    st.sidebar.error("Embedding dosyaları bulunamadı.")
 
 
-st.divider()
-
-# Soru giriş alanı
-st.subheader("Soru Sor")
-
-question = st.text_input(
-    "Sorunuzu yazın:",
-    placeholder="Örneğin: Binom dağılımının varyansı nedir?",
-    key="question_input"
+# Sekmeler
+tab1, tab2 = st.tabs(
+    [
+        "🤖 RAG Asistanı",
+        "📝 Soru Üretici"
+    ]
 )
 
-col1, col2 = st.columns([1, 1])
 
-with col1:
-    ask_button = st.button("Cevapla", type="primary")
+# =========================================================
+# 1. SEKME: RAG ASİSTANI
+# =========================================================
+with tab1:
+    st.subheader("RAG Asistanı")
 
-with col2:
-    clear_button = st.button("Sohbeti Temizle")
+    st.write(
+        "Bu bölümde soru sorabilirsiniz. Sistem önce veri setinde en yakın kaynakları bulur, "
+        "sonra LLM ile açıklayıcı cevap üretir."
+    )
 
-
-if clear_button:
-    st.session_state.messages = []
-    st.rerun()
-
-
-if ask_button:
     if not vector_store_ready:
-        st.warning("Önce embedding dosyalarını oluşturmalısınız: `python app\\build_embeddings.py`")
-
-    elif question.strip() == "":
-        st.warning("Lütfen bir soru yazın.")
-
-    else:
-        # Kullanıcı mesajını geçmişe ekle
-        st.session_state.messages.append(
-            {"role": "user", "content": question}
+        st.error(
+            "Embedding dosyaları bulunamadı. Önce şu komutu çalıştırın:\n\n"
+            "`python app\\build_embeddings.py`"
         )
 
-        retrieved_items = retrieve_top_k(
-            question=question,
-            embeddings=embeddings,
-            metadata=metadata,
-            top_k=top_k
-        )
+    question = st.text_input(
+        "Sorunuzu yazın:",
+        placeholder="Örneğin: Binom dağılımının varyansı nedir?",
+        key="rag_question_input"
+    )
 
-        enriched_question = f"""
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        ask_button = st.button("Cevapla", type="primary", key="ask_rag_button")
+
+    with col2:
+        clear_button = st.button("Sohbeti Temizle", key="clear_chat_button")
+
+    if clear_button:
+        st.session_state.messages = []
+        st.rerun()
+
+    if ask_button:
+        if not vector_store_ready:
+            st.warning("Önce embedding dosyalarını oluşturmalısınız: `python app\\build_embeddings.py`")
+
+        elif question.strip() == "":
+            st.warning("Lütfen bir soru yazın.")
+
+        else:
+            st.session_state.messages.append(
+                {"role": "user", "content": question}
+            )
+
+            retrieved_items = retrieve_top_k(
+                question=question,
+                embeddings=embeddings,
+                metadata=metadata,
+                top_k=top_k
+            )
+
+            enriched_question = f"""
 Kullanıcı sorusu:
 {question}
 
@@ -134,47 +153,135 @@ Cevap ayarları:
 Lütfen cevabı bu seviyeye ve uzunluğa uygun hazırla.
 """
 
-        if use_llm:
-            with st.spinner("LLM cevabı hazırlanıyor..."):
-                final_answer = generate_llm_answer(
-                    enriched_question,
-                    retrieved_items
-                )
-        else:
-            final_answer = retrieved_items[0]["output"]
+            if use_llm:
+                with st.spinner("LLM cevabı hazırlanıyor..."):
+                    final_answer = generate_llm_answer(
+                        enriched_question,
+                        retrieved_items
+                    )
+            else:
+                final_answer = retrieved_items[0]["output"]
 
-        # Asistan cevabını geçmişe ekle
-        st.session_state.messages.append(
-            {"role": "assistant", "content": final_answer}
-        )
+            st.session_state.messages.append(
+                {"role": "assistant", "content": final_answer}
+            )
 
-        st.success("Cevap hazır.")
+            st.success("Cevap hazır.")
 
+            if show_sources:
+                st.divider()
+                st.subheader("Bulunan Kaynaklar")
 
-# Sohbet geçmişi gösterimi
-if st.session_state.messages:
-    st.divider()
-    st.subheader("Sohbet Geçmişi")
+                for i, item in enumerate(retrieved_items, start=1):
+                    with st.expander(f"Kaynak {i} - Skor: {item['score']:.3f}"):
+                        st.write("Konu:", item["topic"])
+                        st.write("Seviye:", item["level"])
+                        st.write("Cevap tipi:", item["type"])
+                        st.write("Eşleşen soru:", item["instruction"])
+                        st.write("Temel cevap:", item["output"])
 
-    for msg in st.session_state.messages:
-        if msg["role"] == "user":
-            st.markdown("#### 👤 Soru")
-            st.write(msg["content"])
-        else:
-            st.markdown("#### 🤖 Cevap")
-            st.write(msg["content"])
-
-
-# Son soruya ait kaynakları göster
-if show_sources and "messages" in st.session_state and len(st.session_state.messages) > 0:
-    if ask_button and question.strip() != "" and vector_store_ready:
+    if st.session_state.messages:
         st.divider()
-        st.subheader("Bulunan Kaynaklar")
+        st.subheader("Sohbet Geçmişi")
 
-        for i, item in enumerate(retrieved_items, start=1):
-            with st.expander(f"Kaynak {i} - Skor: {item['score']:.3f}"):
-                st.write("Konu:", item["topic"])
-                st.write("Seviye:", item["level"])
-                st.write("Cevap tipi:", item["type"])
-                st.write("Eşleşen soru:", item["instruction"])
-                st.write("Temel cevap:", item["output"])
+        for msg in st.session_state.messages:
+            if msg["role"] == "user":
+                st.markdown("#### 👤 Soru")
+                st.write(msg["content"])
+            else:
+                st.markdown("#### 🤖 Cevap")
+                st.write(msg["content"])
+
+
+# =========================================================
+# 2. SEKME: SORU ÜRETİCİ
+# =========================================================
+with tab2:
+    st.subheader("Soru Üretici")
+
+    st.write(
+        "Bu bölümde seçilen konuya ve seviyeye göre çözümlü soru, çoktan seçmeli soru "
+        "veya kısa cevaplı soru üretebilirsiniz."
+    )
+
+    question_topics = [
+        "Temel Olasılık",
+        "Koşullu Olasılık",
+        "Bayes Teoremi",
+        "Sayma Yöntemleri",
+        "Rassal Değişkenler",
+        "Beklenen Değer ve Varyans",
+        "Bernoulli Dağılımı",
+        "Binom Dağılımı",
+        "Poisson Dağılımı",
+        "Normal Dağılım",
+        "Güven Aralığı",
+        "Hipotez Testleri",
+        "t Testleri",
+        "ANOVA",
+        "Korelasyon",
+        "Regresyon",
+        "SPSS Yorumlama",
+        "Python Uygulamaları"
+    ]
+
+    selected_topic = st.selectbox(
+        "Konu seçin:",
+        question_topics,
+        index=7
+    )
+
+    selected_level = st.selectbox(
+        "Seviye seçin:",
+        ["Başlangıç", "Orta", "İleri"],
+        index=1
+    )
+
+    selected_question_type = st.selectbox(
+        "Soru türü seçin:",
+        [
+            "Çoktan Seçmeli",
+            "Klasik",
+            "Çözümlü Soru",
+            "Kısa Cevaplı",
+            "Doğru-Yanlış"
+        ],
+        index=0
+    )
+
+    question_count = st.slider(
+        "Soru sayısı:",
+        min_value=1,
+        max_value=10,
+        value=5
+    )
+
+    generate_button = st.button(
+        "Soru Üret",
+        type="primary",
+        key="generate_questions_button"
+    )
+
+    if generate_button:
+        with st.spinner("Sorular hazırlanıyor..."):
+            questions_output = generate_questions(
+                topic=selected_topic,
+                level=selected_level,
+                question_type=selected_question_type,
+                question_count=question_count
+            )
+
+        st.session_state.generated_questions = questions_output
+        st.success("Sorular hazır.")
+
+    if st.session_state.generated_questions:
+        st.divider()
+        st.subheader("Üretilen Sorular")
+        st.markdown(st.session_state.generated_questions)
+
+        st.download_button(
+            label="Soruları .txt olarak indir",
+            data=st.session_state.generated_questions,
+            file_name="uretilen_sorular.txt",
+            mime="text/plain"
+        )
