@@ -20,3 +20,13 @@ Thumbs.db
 
 # Editor
 .vscode/
+
+
+.env
+venv/
+__pycache__/
+*.pyc
+
+data/qa_embeddings.npy
+data/qa_metadata.jsonl
+models/
