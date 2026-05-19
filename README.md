@@ -28,3 +28,7 @@ Olasılık, istatistik, hipotez testleri, regresyon, ANOVA ve veri analizi konul
 
 \- `models/`: Model dosyaları
 
+
+## Durum
+
+İlk chatbot prototipi hazırlanmıştır.
