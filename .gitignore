@@ -30,3 +30,18 @@ __pycache__/
 data/qa_embeddings.npy
 data/qa_metadata.jsonl
 models/
+
+# Environment
+.env
+venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Generated embedding/vector files
+data/qa_embeddings.npy
+data/qa_metadata.jsonl
+
+# Models
+models/

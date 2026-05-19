@@ -1,166 +1,180 @@
-import json
-from pathlib import Path
-
 import streamlit as st
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 from llm_helper import generate_llm_answer
-
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_PATH = BASE_DIR / "data" / "probability_statistics_qa_structured.jsonl"
-
-
-@st.cache_data
-def load_dataset():
-    data = []
-
-    with open(DATA_PATH, "r", encoding="utf-8") as file:
-        for line in file:
-            data.append(json.loads(line))
-
-    return data
+from retriever import load_vector_store, retrieve_top_k
 
 
 @st.cache_resource
-def build_search_engine(search_texts):
-    vectorizer = TfidfVectorizer()
-    vectors = vectorizer.fit_transform(search_texts)
-    return vectorizer, vectors
-
-
-def make_search_text(item):
-    return " ".join(
-        [
-            item.get("topic", ""),
-            item.get("level", ""),
-            item.get("type", ""),
-            item.get("instruction", ""),
-            item.get("input", ""),
-            item.get("output", "")
-        ]
-    )
-
-
-def find_best_answer(question, data, vectorizer, vectors):
-    user_vector = vectorizer.transform([question])
-    similarities = cosine_similarity(user_vector, vectors)[0]
-
-    best_index = similarities.argmax()
-    best_score = similarities[best_index]
-    best_item = data[best_index]
-
-    if best_score < 0.20:
-        return None, best_score
-
-    return best_item, best_score
+def cached_vector_store():
+    return load_vector_store()
 
 
 st.set_page_config(
-    page_title="Olasılık-İstatistik LLM Asistanı",
+    page_title="Olasılık-İstatistik RAG Asistanı",
     page_icon="📊",
     layout="centered"
 )
 
-st.title("📊 Olasılık-İstatistik LLM Asistanı")
+st.title("📊 Olasılık-İstatistik RAG Asistanı")
 
 st.write(
-    "Bu uygulama önce kendi yapılandırılmış veri setimizde en yakın bilgiyi bulur, "
-    "sonra LLM kullanarak daha doğal ve öğretici bir cevap üretir."
+    "Bu uygulama, yapılandırılmış olasılık-istatistik veri setinden "
+    "embedding tabanlı arama yapar ve bulunan kaynaklara göre LLM cevabı üretir."
 )
 
-data = load_dataset()
+# Sohbet geçmişi
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-topics = sorted(set(item["topic"] for item in data))
-levels = sorted(set(item["level"] for item in data))
-types = sorted(set(item["type"] for item in data))
 
-st.sidebar.title("Filtreler")
+# Vektör veritabanını yükle
+try:
+    embeddings, metadata = cached_vector_store()
+    vector_store_ready = True
+except FileNotFoundError:
+    embeddings, metadata = None, None
+    vector_store_ready = False
 
-selected_topic = st.sidebar.selectbox(
-    "Konu",
-    ["Tümü"] + topics
-)
 
-selected_level = st.sidebar.selectbox(
-    "Seviye",
-    ["Tümü"] + levels
-)
+# Sidebar ayarları
+st.sidebar.title("Ayarlar")
 
-selected_type = st.sidebar.selectbox(
-    "Cevap tipi",
-    ["Tümü"] + types
+top_k = st.sidebar.slider(
+    "Kaç kaynak getirilsin?",
+    min_value=1,
+    max_value=5,
+    value=3
 )
 
 use_llm = st.sidebar.checkbox(
-    "LLM ile cevabı zenginleştir",
+    "LLM ile cevap üret",
     value=True
 )
 
-filtered_data = data
-
-if selected_topic != "Tümü":
-    filtered_data = [item for item in filtered_data if item["topic"] == selected_topic]
-
-if selected_level != "Tümü":
-    filtered_data = [item for item in filtered_data if item["level"] == selected_level]
-
-if selected_type != "Tümü":
-    filtered_data = [item for item in filtered_data if item["type"] == selected_type]
-
-st.sidebar.write("Toplam kayıt:", len(data))
-st.sidebar.write("Filtrelenmiş kayıt:", len(filtered_data))
-st.sidebar.write("Arama: TF-IDF + Cosine Similarity")
-st.sidebar.write("Cevap üretimi: OpenAI Responses API")
-
-question = st.text_input(
-    "Sorunuzu yazın:",
-    placeholder="Örneğin: Binom dağılımının varyansı nedir?"
+response_style = st.sidebar.selectbox(
+    "Cevap uzunluğu",
+    ["Kısa", "Orta", "Ayrıntılı"],
+    index=1
 )
 
-if st.button("Cevapla"):
-    if question.strip() == "":
-        st.warning("Lütfen bir soru yazın.")
-    elif len(filtered_data) == 0:
-        st.warning("Seçilen filtrelerde kayıt yok.")
-    else:
-        filtered_search_texts = [make_search_text(item) for item in filtered_data]
-        filtered_vectorizer, filtered_vectors = build_search_engine(filtered_search_texts)
+student_level = st.sidebar.selectbox(
+    "Öğrenci seviyesi",
+    ["Lise", "Lisans", "Yüksek Lisans"],
+    index=1
+)
 
-        best_item, score = find_best_answer(
-            question,
-            filtered_data,
-            filtered_vectorizer,
-            filtered_vectors
-        )
+show_sources = st.sidebar.checkbox(
+    "Bulunan kaynakları göster",
+    value=True
+)
 
-        if best_item is None:
-            st.warning(
-                "Bu soruya henüz veri setimizde güçlü bir cevap yok. "
-                "Bu konuyu yeni veri olarak ekleyebiliriz."
-            )
-            st.write("Benzerlik skoru:", round(score, 3))
-        else:
-            if use_llm:
-                with st.spinner("LLM cevabı hazırlanıyor..."):
-                    final_answer = generate_llm_answer(question, best_item)
-            else:
-                final_answer = best_item["output"]
+if vector_store_ready:
+    st.sidebar.write("Toplam kayıt:", len(metadata))
+    st.sidebar.write("Arama: OpenAI Embedding + Cosine Similarity")
+else:
+    st.error(
+        "Embedding dosyaları bulunamadı. Önce şu komutu çalıştırın:\n\n"
+        "`python app\\build_embeddings.py`"
+    )
 
-            st.subheader("Cevap")
-            st.write(final_answer)
-
-            st.subheader("Kaynak Veri Seti Kaydı")
-            st.write("Konu:", best_item["topic"])
-            st.write("Seviye:", best_item["level"])
-            st.write("Cevap tipi:", best_item["type"])
-            st.write("Eşleşen soru:", best_item["instruction"])
-            st.write("Benzerlik skoru:", round(score, 3))
 
 st.divider()
 
-st.subheader("Veri Setinden Örnek Sorular")
+# Soru giriş alanı
+st.subheader("Soru Sor")
 
-for item in filtered_data[:10]:
-    st.code(item["instruction"])
+question = st.text_input(
+    "Sorunuzu yazın:",
+    placeholder="Örneğin: Binom dağılımının varyansı nedir?",
+    key="question_input"
+)
+
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    ask_button = st.button("Cevapla", type="primary")
+
+with col2:
+    clear_button = st.button("Sohbeti Temizle")
+
+
+if clear_button:
+    st.session_state.messages = []
+    st.rerun()
+
+
+if ask_button:
+    if not vector_store_ready:
+        st.warning("Önce embedding dosyalarını oluşturmalısınız: `python app\\build_embeddings.py`")
+
+    elif question.strip() == "":
+        st.warning("Lütfen bir soru yazın.")
+
+    else:
+        # Kullanıcı mesajını geçmişe ekle
+        st.session_state.messages.append(
+            {"role": "user", "content": question}
+        )
+
+        retrieved_items = retrieve_top_k(
+            question=question,
+            embeddings=embeddings,
+            metadata=metadata,
+            top_k=top_k
+        )
+
+        enriched_question = f"""
+Kullanıcı sorusu:
+{question}
+
+Cevap ayarları:
+- Öğrenci seviyesi: {student_level}
+- Cevap uzunluğu: {response_style}
+
+Lütfen cevabı bu seviyeye ve uzunluğa uygun hazırla.
+"""
+
+        if use_llm:
+            with st.spinner("LLM cevabı hazırlanıyor..."):
+                final_answer = generate_llm_answer(
+                    enriched_question,
+                    retrieved_items
+                )
+        else:
+            final_answer = retrieved_items[0]["output"]
+
+        # Asistan cevabını geçmişe ekle
+        st.session_state.messages.append(
+            {"role": "assistant", "content": final_answer}
+        )
+
+        st.success("Cevap hazır.")
+
+
+# Sohbet geçmişi gösterimi
+if st.session_state.messages:
+    st.divider()
+    st.subheader("Sohbet Geçmişi")
+
+    for msg in st.session_state.messages:
+        if msg["role"] == "user":
+            st.markdown("#### 👤 Soru")
+            st.write(msg["content"])
+        else:
+            st.markdown("#### 🤖 Cevap")
+            st.write(msg["content"])
+
+
+# Son soruya ait kaynakları göster
+if show_sources and "messages" in st.session_state and len(st.session_state.messages) > 0:
+    if ask_button and question.strip() != "" and vector_store_ready:
+        st.divider()
+        st.subheader("Bulunan Kaynaklar")
+
+        for i, item in enumerate(retrieved_items, start=1):
+            with st.expander(f"Kaynak {i} - Skor: {item['score']:.3f}"):
+                st.write("Konu:", item["topic"])
+                st.write("Seviye:", item["level"])
+                st.write("Cevap tipi:", item["type"])
+                st.write("Eşleşen soru:", item["instruction"])
+                st.write("Temel cevap:", item["output"])
