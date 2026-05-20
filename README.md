@@ -1,34 +1,40 @@
-\# Probability and Statistics LLM
+# Probability and Statistics RAG Assistant
 
+Bu proje, olasılık ve istatistik konularında Türkçe destekli bir öğretici yapay zekâ asistanı geliştirmek amacıyla hazırlanmıştır.
 
+Uygulama; yapılandırılmış soru-cevap veri seti, OpenAI embedding modeli, RAG yaklaşımı ve Streamlit arayüzü kullanarak çalışır.
 
-Bu proje, olasılık ve istatistik konularında Türkçe destekli bir öğretici LLM / chatbot sistemi geliştirmek için hazırlanmıştır.
+## Özellikler
 
+- Olasılık ve istatistik konularında öğretici cevap üretimi
+- Embedding tabanlı kaynak arama
+- RAG destekli cevap üretimi
+- OpenAI LLM bağlantısı
+- Sohbet geçmişi
+- Kaynak gösterimi
+- Cevap uzunluğu seçimi
+- Öğrenci seviyesi seçimi
+- Soru üretici modül
+- Çoktan seçmeli, klasik, çözümlü ve kısa cevaplı soru üretimi
+- Streamlit web arayüzü
 
+## Proje Yapısı
 
-\## Amaç
-
-
-
-Olasılık, istatistik, hipotez testleri, regresyon, ANOVA ve veri analizi konularında öğrencilere yardımcı olacak bir yapay zekâ asistanı geliştirmek.
-
-
-
-\## Klasör Yapısı
-
-
-
-\- `data/`: Eğitim veri setleri
-
-\- `notebooks/`: Jupyter / Colab defterleri
-
-\- `app/`: Uygulama dosyaları
-
-\- `docs/`: Dokümantasyon
-
-\- `models/`: Model dosyaları
-
-
-## Durum
-
-İlk chatbot prototipi hazırlanmıştır.
+```text
+probability-statistics-llm/
+│
+├── app/
+│   ├── build_embeddings.py
+│   ├── llm_helper.py
+│   ├── retriever.py
+│   └── streamlit_app.py
+│
+├── data/
+│   ├── probability_statistics_qa.jsonl
+│   ├── probability_statistics_qa_structured.jsonl
+│   ├── qa_embeddings.npy
+│   └── qa_metadata.jsonl
+│
+├── requirements.txt
+├── README.md
+└── .gitignore

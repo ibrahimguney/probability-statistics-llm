@@ -1,287 +1,666 @@
+import os
+import sys
+from pathlib import Path
+
 import streamlit as st
-
-from llm_helper import generate_llm_answer, generate_questions
-from retriever import load_vector_store, retrieve_top_k
+from dotenv import load_dotenv
 
 
-@st.cache_resource
-def cached_vector_store():
-    return load_vector_store()
+# -------------------------------------------------
+# TEMEL AYARLAR
+# -------------------------------------------------
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+RAW_DIR = BASE_DIR / "docs" / "raw"
+INDEX_DIR = BASE_DIR / "data" / "rag_index"
+
+COURSE_FOLDERS = {
+    "Olasılık": "olasilik",
+    "İstatistik": "istatistik",
+    "SPSS": "spss",
+    "Regresyon": "regresyon",
+    "Araştırma Yöntemleri": "arastirma_yontemleri",
+}
+
+COURSE_LIST = [
+    "Genel",
+    "Olasılık",
+    "İstatistik",
+    "SPSS",
+    "Regresyon",
+    "Araştırma Yöntemleri",
+]
+
+if str(BASE_DIR) not in sys.path:
+    sys.path.append(str(BASE_DIR))
+
+load_dotenv(BASE_DIR / ".env")
+
+
+# -------------------------------------------------
+# PROJE MODÜLLERİ
+# -------------------------------------------------
+
+from ingest import rebuild_index
+
+try:
+    from app.rag_answer import retrieve_context
+except ModuleNotFoundError:
+    from rag_answer import retrieve_context
+
+try:
+    from app.llm_rag_answer import answer_with_llm
+except ModuleNotFoundError:
+    from llm_rag_answer import answer_with_llm
+
+
+# -------------------------------------------------
+# STREAMLIT SAYFA AYARI
+# -------------------------------------------------
 
 st.set_page_config(
-    page_title="Olasılık-İstatistik RAG Asistanı",
-    page_icon="📊",
-    layout="centered"
-)
-
-st.title("📊 Olasılık-İstatistik Öğretici Platformu")
-
-st.write(
-    "Bu uygulama iki bölümden oluşur: RAG tabanlı konu asistanı ve "
-    "olasılık-istatistik soru üretici modülü."
+    page_title="Olasılık ve İstatistik LLM",
+    page_icon="📘",
+    layout="wide",
 )
 
 
-# Sohbet geçmişi
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# -------------------------------------------------
+# SESSION STATE
+# -------------------------------------------------
 
-if "generated_questions" not in st.session_state:
-    st.session_state.generated_questions = ""
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-
-# Vektör veritabanını yükle
-try:
-    embeddings, metadata = cached_vector_store()
-    vector_store_ready = True
-except FileNotFoundError:
-    embeddings, metadata = None, None
-    vector_store_ready = False
+if "admin_logged_in" not in st.session_state:
+    st.session_state.admin_logged_in = False
 
 
-# Sidebar
-st.sidebar.title("Ayarlar")
+# -------------------------------------------------
+# YARDIMCI FONKSİYONLAR
+# -------------------------------------------------
 
-top_k = st.sidebar.slider(
-    "Kaç kaynak getirilsin?",
-    min_value=1,
-    max_value=5,
-    value=3
-)
+def create_course_folders():
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
 
-use_llm = st.sidebar.checkbox(
-    "LLM ile cevap üret",
-    value=True
-)
-
-response_style = st.sidebar.selectbox(
-    "Cevap uzunluğu",
-    ["Kısa", "Orta", "Ayrıntılı"],
-    index=1
-)
-
-student_level = st.sidebar.selectbox(
-    "Öğrenci seviyesi",
-    ["Lise", "Lisans", "Yüksek Lisans"],
-    index=1
-)
-
-show_sources = st.sidebar.checkbox(
-    "Bulunan kaynakları göster",
-    value=True
-)
-
-if vector_store_ready:
-    st.sidebar.write("Toplam kayıt:", len(metadata))
-    st.sidebar.write("Arama: OpenAI Embedding + Cosine Similarity")
-else:
-    st.sidebar.error("Embedding dosyaları bulunamadı.")
+    for folder in COURSE_FOLDERS.values():
+        (RAW_DIR / folder).mkdir(parents=True, exist_ok=True)
 
 
-# Sekmeler
-tab1, tab2 = st.tabs(
+def list_course_files():
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+
+    return sorted(
+        [
+            file
+            for file in RAW_DIR.rglob("*")
+            if file.suffix.lower() in [".pdf", ".docx"]
+        ]
+    )
+
+
+# -------------------------------------------------
+# SOL MENÜ
+# -------------------------------------------------
+
+st.sidebar.title("📘 Menü")
+
+page = st.sidebar.radio(
+    "Sayfa seçiniz:",
     [
-        "🤖 RAG Asistanı",
-        "📝 Soru Üretici"
-    ]
+        "Ana Sayfa",
+        "Yönetici Paneli",
+        "RAG Arama",
+        "LLM Destekli Cevap",
+        "Dersler",
+        "Proje Hakkında",
+    ],
 )
 
+st.sidebar.divider()
 
-# =========================================================
-# 1. SEKME: RAG ASİSTANI
-# =========================================================
-with tab1:
-    st.subheader("RAG Asistanı")
+st.sidebar.info(
+    "Bu uygulama PDF ve Word ders notları üzerinden çalışan "
+    "RAG tabanlı akademik asistan örneğidir."
+)
+
+st.sidebar.markdown("### Durum")
+
+if (INDEX_DIR / "documents.json").exists():
+    st.sidebar.success("RAG aktif")
+else:
+    st.sidebar.warning("RAG indeksi yok")
+
+if os.getenv("OPENAI_API_KEY"):
+    st.sidebar.success("LLM aktif")
+else:
+    st.sidebar.warning("OPENAI_API_KEY yok")
+
+st.sidebar.info("Ders notları: docs/raw")
+
+
+# -------------------------------------------------
+# ANA SAYFA
+# -------------------------------------------------
+
+if page == "Ana Sayfa":
+    st.title("📘 Olasılık ve İstatistik LLM")
 
     st.write(
-        "Bu bölümde soru sorabilirsiniz. Sistem önce veri setinde en yakın kaynakları bulur, "
-        "sonra LLM ile açıklayıcı cevap üretir."
+        "Bu uygulama, olasılık ve istatistik ders notları üzerinden çalışan "
+        "RAG tabanlı akademik asistan örneğidir."
     )
 
-    if not vector_store_ready:
-        st.error(
-            "Embedding dosyaları bulunamadı. Önce şu komutu çalıştırın:\n\n"
-            "`python app\\build_embeddings.py`"
-        )
-
-    question = st.text_input(
-        "Sorunuzu yazın:",
-        placeholder="Örneğin: Binom dağılımının varyansı nedir?",
-        key="rag_question_input"
+    st.info(
+        "Ders notları `docs/raw` klasörüne eklenir. "
+        "Ardından Yönetici Paneli üzerinden RAG indeksi yenilenir."
     )
 
-    col1, col2 = st.columns([1, 1])
+    st.markdown("## Uygulamada Neler Var?")
+
+    col1, col2, col3 = st.columns(3)
 
     with col1:
-        ask_button = st.button("Cevapla", type="primary", key="ask_rag_button")
+        st.subheader("📄 Ders Notları")
+        st.write("PDF ve Word ders notları okunur.")
 
     with col2:
-        clear_button = st.button("Sohbeti Temizle", key="clear_chat_button")
+        st.subheader("🔎 RAG Arama")
+        st.write("Soruya en uygun kaynak parçalar bulunur.")
 
-    if clear_button:
-        st.session_state.messages = []
+    with col3:
+        st.subheader("🤖 LLM Cevabı")
+        st.write("OpenAI destekli açıklayıcı akademik cevap üretilir.")
+
+    st.markdown("## Önerilen Kullanım Sırası")
+
+    st.markdown(
+        """
+        1. **Yönetici Paneli** üzerinden ders notu yükleyin.
+        2. **RAG İndeksini Yenile** butonuna basın.
+        3. **RAG Arama** sayfasında kaynak parçaları test edin.
+        4. **LLM Destekli Cevap** sayfasında akademik cevap üretin.
+        """
+    )
+
+
+# -------------------------------------------------
+# YÖNETİCİ PANELİ
+# -------------------------------------------------
+
+elif page == "Yönetici Paneli":
+    st.title("🛠️ Yönetici Paneli")
+
+    if not st.session_state.admin_logged_in:
+        st.warning("Bu sayfaya erişmek için yönetici şifresi gereklidir.")
+
+        admin_password_input = st.text_input(
+            "Yönetici şifresi:",
+            type="password",
+        )
+
+        if st.button("Giriş Yap"):
+            correct_password = os.getenv("ADMIN_PASSWORD", "")
+
+            if admin_password_input == correct_password and correct_password:
+                st.session_state.admin_logged_in = True
+                st.success("Yönetici girişi başarılı.")
+                st.rerun()
+            else:
+                st.error("Şifre hatalı veya ADMIN_PASSWORD tanımlı değil.")
+
+        st.stop()
+
+    if st.button("Yönetici Çıkışı Yap"):
+        st.session_state.admin_logged_in = False
+        st.success("Yönetici oturumu kapatıldı.")
         st.rerun()
 
-    if ask_button:
-        if not vector_store_ready:
-            st.warning("Önce embedding dosyalarını oluşturmalısınız: `python app\\build_embeddings.py`")
+    st.write(
+        "Bu bölümden ders notlarını yönetebilir, yeni PDF/DOCX dosyaları yükleyebilir, "
+        "gerektiğinde dosya silebilir ve RAG indeksini yenileyebilirsiniz."
+    )
 
-        elif question.strip() == "":
-            st.warning("Lütfen bir soru yazın.")
+    create_course_folders()
+    INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
+    st.divider()
+
+    st.subheader("📌 Sistem Durumu")
+
+    documents_json = INDEX_DIR / "documents.json"
+    vectorizer_pkl = INDEX_DIR / "vectorizer.pkl"
+    matrix_pkl = INDEX_DIR / "matrix.pkl"
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if documents_json.exists():
+            st.success("documents.json var")
         else:
-            st.session_state.messages.append(
-                {"role": "user", "content": question}
+            st.error("documents.json yok")
+
+    with col2:
+        if vectorizer_pkl.exists():
+            st.success("vectorizer.pkl var")
+        else:
+            st.error("vectorizer.pkl yok")
+
+    with col3:
+        if matrix_pkl.exists():
+            st.success("matrix.pkl var")
+        else:
+            st.error("matrix.pkl yok")
+
+    st.divider()
+
+    st.subheader("📤 Yeni Ders Notu Yükle")
+
+    upload_course = st.selectbox(
+        "Dosyanın ait olduğu dersi seçiniz:",
+        [
+            "Olasılık",
+            "İstatistik",
+            "SPSS",
+            "Regresyon",
+            "Araştırma Yöntemleri",
+        ],
+    )
+
+    uploaded_file = st.file_uploader(
+        "PDF veya DOCX dosyası seçiniz:",
+        type=["pdf", "docx"],
+    )
+
+    if uploaded_file is not None:
+        course_folder = COURSE_FOLDERS[upload_course]
+        target_dir = RAW_DIR / course_folder
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        save_path = target_dir / uploaded_file.name
+
+        if save_path.exists():
+            st.warning(
+                f"`{uploaded_file.name}` adlı dosya zaten var. "
+                "Kaydederseniz mevcut dosyanın üzerine yazılır."
             )
 
-            retrieved_items = retrieve_top_k(
-                question=question,
-                embeddings=embeddings,
-                metadata=metadata,
-                top_k=top_k
-            )
+        if st.button("Dosyayı Kaydet"):
+            with open(save_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
 
-            enriched_question = f"""
-Kullanıcı sorusu:
-{question}
+            st.success(f"Dosya kaydedildi: {uploaded_file.name}")
+            st.code(str(save_path), language="text")
 
-Cevap ayarları:
-- Öğrenci seviyesi: {student_level}
-- Cevap uzunluğu: {response_style}
+    st.divider()
 
-Lütfen cevabı bu seviyeye ve uzunluğa uygun hazırla.
-"""
+    st.subheader("📚 Mevcut Ders Notları")
 
-            if use_llm:
-                with st.spinner("LLM cevabı hazırlanıyor..."):
-                    final_answer = generate_llm_answer(
-                        enriched_question,
-                        retrieved_items
-                    )
-            else:
-                final_answer = retrieved_items[0]["output"]
+    files = list_course_files()
 
-            st.session_state.messages.append(
-                {"role": "assistant", "content": final_answer}
-            )
+    if not files:
+        st.warning("Henüz `docs/raw` klasöründe PDF veya DOCX dosyası yok.")
+    else:
+        for file in files:
+            file_size_kb = file.stat().st_size / 1024
 
-            st.success("Cevap hazır.")
+            col_file, col_size, col_delete = st.columns([5, 2, 2])
 
-            if show_sources:
-                st.divider()
-                st.subheader("Bulunan Kaynaklar")
+            with col_file:
+                st.write(f"📄 {file.relative_to(RAW_DIR)}")
 
-                for i, item in enumerate(retrieved_items, start=1):
-                    with st.expander(f"Kaynak {i} - Skor: {item['score']:.3f}"):
-                        st.write("Konu:", item["topic"])
-                        st.write("Seviye:", item["level"])
-                        st.write("Cevap tipi:", item["type"])
-                        st.write("Eşleşen soru:", item["instruction"])
-                        st.write("Temel cevap:", item["output"])
+            with col_size:
+                st.write(f"{file_size_kb:.1f} KB")
 
-    if st.session_state.messages:
-        st.divider()
-        st.subheader("Sohbet Geçmişi")
+            with col_delete:
+                if st.button("Sil", key=f"delete_{file.relative_to(RAW_DIR)}"):
+                    try:
+                        file.unlink()
+                        st.success(f"Silindi: {file.name}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error("Dosya silinirken hata oluştu.")
+                        st.exception(e)
 
-        for msg in st.session_state.messages:
-            if msg["role"] == "user":
-                st.markdown("#### 👤 Soru")
-                st.write(msg["content"])
-            else:
-                st.markdown("#### 🤖 Cevap")
-                st.write(msg["content"])
+    st.divider()
 
-
-# =========================================================
-# 2. SEKME: SORU ÜRETİCİ
-# =========================================================
-with tab2:
-    st.subheader("Soru Üretici")
+    st.subheader("🔄 RAG İndeksini Yenile")
 
     st.write(
-        "Bu bölümde seçilen konuya ve seviyeye göre çözümlü soru, çoktan seçmeli soru "
-        "veya kısa cevaplı soru üretebilirsiniz."
+        "Yeni dosya yükledikten veya dosya sildikten sonra "
+        "RAG indeksini yeniden oluşturmalısınız."
     )
 
-    question_topics = [
-        "Temel Olasılık",
-        "Koşullu Olasılık",
-        "Bayes Teoremi",
-        "Sayma Yöntemleri",
-        "Rassal Değişkenler",
-        "Beklenen Değer ve Varyans",
-        "Bernoulli Dağılımı",
-        "Binom Dağılımı",
-        "Poisson Dağılımı",
-        "Normal Dağılım",
-        "Güven Aralığı",
-        "Hipotez Testleri",
-        "t Testleri",
-        "ANOVA",
-        "Korelasyon",
-        "Regresyon",
-        "SPSS Yorumlama",
-        "Python Uygulamaları"
-    ]
+    if st.button("RAG İndeksini Yenile"):
+        try:
+            with st.spinner("Ders notları yeniden indeksleniyor..."):
+                rebuild_index()
 
-    selected_topic = st.selectbox(
-        "Konu seçin:",
-        question_topics,
-        index=7
+            st.success("RAG indeksi başarıyla yenilendi.")
+
+        except Exception as e:
+            st.error("İndeks yenilenirken hata oluştu.")
+            st.exception(e)
+
+    st.divider()
+
+    st.subheader("📁 Klasör Bilgileri")
+
+    st.code(
+        f"""
+Proje ana klasörü:
+{BASE_DIR}
+
+Ders notları klasörü:
+{RAW_DIR}
+
+RAG indeks klasörü:
+{INDEX_DIR}
+        """,
+        language="text",
     )
 
-    selected_level = st.selectbox(
-        "Seviye seçin:",
-        ["Başlangıç", "Orta", "İleri"],
-        index=1
+# -------------------------------------------------
+# RAG ARAMA
+# -------------------------------------------------
+
+elif page == "RAG Arama":
+    st.title("🔎 RAG Arama")
+
+    st.write(
+        "Bu bölüm sadece ders notlarından en ilgili kaynak parçaları getirir. "
+        "Henüz LLM ile açıklayıcı cevap üretmez."
     )
 
-    selected_question_type = st.selectbox(
-        "Soru türü seçin:",
-        [
-            "Çoktan Seçmeli",
-            "Klasik",
-            "Çözümlü Soru",
-            "Kısa Cevaplı",
-            "Doğru-Yanlış"
-        ],
-        index=0
+    course = st.selectbox(
+        "Ders seçiniz:",
+        COURSE_LIST,
     )
 
-    question_count = st.slider(
-        "Soru sayısı:",
+    question = st.text_input(
+        "Aranacak soru veya konu:",
+        placeholder="Örneğin: Koşullu olasılık nedir?",
+    )
+
+    top_k = st.slider(
+        "Kaç kaynak parça getirilsin?",
         min_value=1,
-        max_value=10,
-        value=5
+        max_value=5,
+        value=3,
     )
 
-    generate_button = st.button(
-        "Soru Üret",
-        type="primary",
-        key="generate_questions_button"
+    if st.button("Kaynak Parçaları Getir"):
+        if not question.strip():
+            st.warning("Lütfen bir soru veya konu yazınız.")
+        else:
+            try:
+                with st.spinner("RAG indeksi aranıyor..."):
+                    contexts = retrieve_context(
+                        question,
+                        top_k=top_k,
+                        course=course,
+                    )
+
+                st.subheader("Bulunan Kaynak Parçalar")
+
+                if not contexts:
+                    st.warning(
+                        "Seçilen derse ait indekslenmiş kaynak bulunamadı. "
+                        "Yönetici Paneli’nden ilgili derse PDF/DOCX dosyası yükleyip "
+                        "RAG indeksini yenileyin."
+                    )
+                else:
+                    for i, ctx in enumerate(contexts, start=1):
+                        with st.expander(
+                            f"{i}. Kaynak: {ctx['source']} | "
+                            f"Parça: {ctx['chunk_id']} | "
+                            f"Skor: {ctx['score']:.4f}"
+                        ):
+                            st.write(ctx["text"])
+
+            except FileNotFoundError as e:
+                st.error(str(e))
+                st.code("python ingest.py", language="bat")
+
+            except Exception as e:
+                st.error("Beklenmeyen bir hata oluştu.")
+                st.exception(e)
+
+# -------------------------------------------------
+# LLM DESTEKLİ CEVAP
+# -------------------------------------------------
+
+elif page == "LLM Destekli Cevap":
+    st.title("🤖 LLM Destekli RAG Cevap")
+
+    st.write(
+        "Bu bölüm önce seçilen ders bağlamında ders notlarından ilgili parçaları bulur, "
+        "sonra OpenAI modeliyle açıklayıcı akademik cevap üretir."
     )
 
-    if generate_button:
-        with st.spinner("Sorular hazırlanıyor..."):
-            questions_output = generate_questions(
-                topic=selected_topic,
-                level=selected_level,
-                question_type=selected_question_type,
-                question_count=question_count
-            )
+    if st.button("Sohbet Geçmişini Temizle"):
+        st.session_state.chat_history = []
+        st.success("Sohbet geçmişi temizlendi.")
 
-        st.session_state.generated_questions = questions_output
-        st.success("Sorular hazır.")
+    st.divider()
 
-    if st.session_state.generated_questions:
-        st.divider()
-        st.subheader("Üretilen Sorular")
-        st.markdown(st.session_state.generated_questions)
+    course = st.selectbox(
+        "Ders seçiniz:",
+        COURSE_LIST,
+    )
 
-        st.download_button(
-            label="Soruları .txt olarak indir",
-            data=st.session_state.generated_questions,
-            file_name="uretilen_sorular.txt",
-            mime="text/plain"
+    question = st.text_input(
+        "Sorunuzu yazınız:",
+        placeholder="Örneğin: Koşullu olasılık nedir?",
+    )
+
+    top_k = st.slider(
+        "Kaç kaynak parça kullanılsın?",
+        min_value=1,
+        max_value=5,
+        value=3,
+    )
+
+    if st.button("LLM ile Cevapla"):
+        if not question.strip():
+            st.warning("Lütfen bir soru yazınız.")
+        else:
+            try:
+                with st.spinner("Ders notları taranıyor ve LLM cevabı hazırlanıyor..."):
+                    result = answer_with_llm(
+                        question,
+                        top_k=top_k,
+                        course=course,
+                    )
+
+                st.session_state.chat_history.append(
+                    {
+                        "course": course,
+                        "question": question,
+                        "answer": result["answer"],
+                        "contexts": result["contexts"],
+                    }
+                )
+
+            except FileNotFoundError as e:
+                st.error(str(e))
+                st.code("python ingest.py", language="bat")
+
+            except Exception as e:
+                st.error("Beklenmeyen bir hata oluştu.")
+                st.exception(e)
+
+    st.subheader("Sohbet Geçmişi")
+
+    if not st.session_state.chat_history:
+        st.info("Henüz soru sorulmadı.")
+    else:
+        for i, item in enumerate(reversed(st.session_state.chat_history), start=1):
+            soru_no = len(st.session_state.chat_history) - i + 1
+
+            st.markdown(f"### Soru {soru_no}")
+            st.markdown(f"**Ders:** {item.get('course', 'Genel')}")
+            st.markdown(f"**Soru:** {item['question']}")
+
+            st.markdown("**Cevap:**")
+            st.markdown(item["answer"])
+
+            with st.expander("Kullanılan Kaynak Parçalar"):
+                for j, ctx in enumerate(item["contexts"], start=1):
+                    st.markdown(
+                        f"**{j}. Kaynak:** {ctx['source']} | "
+                        f"**Parça:** {ctx['chunk_id']} | "
+                        f"**Skor:** {ctx['score']:.4f}"
+                    )
+                    st.write(ctx["text"])
+                    st.divider()
+
+
+# -------------------------------------------------
+# DERSLER
+# -------------------------------------------------
+
+elif page == "Dersler":
+    st.title("📚 Dersler")
+
+    selected_course = st.selectbox(
+        "Ders içeriği seçiniz:",
+        [
+            "Olasılık",
+            "İstatistik",
+            "SPSS",
+            "Regresyon",
+            "Araştırma Yöntemleri",
+        ],
+    )
+
+    if selected_course == "Olasılık":
+        st.markdown("### Olasılık")
+        st.markdown(
+            """
+            - Deney, örnek uzay ve olay
+            - Olasılık aksiyomları
+            - Koşullu olasılık
+            - Bağımsızlık
+            - Bayes teoremi
+            - Permütasyon ve kombinasyon
+            - Rassal değişkenler
+            - Binom, Poisson ve Normal dağılımlar
+            - Merkezi Limit Teoremi
+            """
         )
+
+    elif selected_course == "İstatistik":
+        st.markdown("### İstatistik")
+        st.markdown(
+            """
+            - Betimsel istatistik
+            - Ortalama, medyan ve mod
+            - Varyans ve standart sapma
+            - Grafikler ve tablolar
+            - Örnekleme
+            - Güven aralığı
+            - Hipotez testi
+            - Korelasyon ve regresyona giriş
+            """
+        )
+
+    elif selected_course == "SPSS":
+        st.markdown("### SPSS")
+        st.markdown(
+            """
+            - Veri girişi
+            - Değişken tanımlama
+            - Betimsel istatistikler
+            - Grafik oluşturma
+            - t testi
+            - ANOVA
+            - Korelasyon
+            - Regresyon
+            - ANCOVA
+            """
+        )
+
+    elif selected_course == "Regresyon":
+        st.markdown("### Regresyon")
+        st.markdown(
+            """
+            - Basit doğrusal regresyon
+            - Çoklu regresyon
+            - Katsayıların yorumu
+            - Model anlamlılığı
+            - R-kare ve düzeltilmiş R-kare
+            - Varsayımlar
+            - Artık analizi
+            - Panel regresyona giriş
+            """
+        )
+
+    elif selected_course == "Araştırma Yöntemleri":
+        st.markdown("### Araştırma Yöntemleri")
+        st.markdown(
+            """
+            - Araştırma problemi
+            - Hipotez kurma
+            - Evren ve örneklem
+            - Veri toplama
+            - Ölçek geliştirme
+            - Geçerlik ve güvenirlik
+            - Nicel araştırma desenleri
+            - Raporlama
+            """
+        )
+
+
+# -------------------------------------------------
+# PROJE HAKKINDA
+# -------------------------------------------------
+
+elif page == "Proje Hakkında":
+    st.title("ℹ️ Proje Hakkında")
+
+    st.write(
+        "Bu proje, olasılık ve istatistik dersleri için hazırlanmış "
+        "küçük ölçekli bir akademik yapay zekâ asistanıdır."
+    )
+
+    st.markdown("### Kullanılan Yapı")
+
+    st.code(
+        """
+docs/raw/
+    olasilik/
+    istatistik/
+    spss/
+    regresyon/
+    arastirma_yontemleri/
+
+data/rag_index/
+    documents.json
+    vectorizer.pkl
+    matrix.pkl
+
+app/
+    streamlit_app.py
+    rag_answer.py
+    llm_rag_answer.py
+
+ingest.py
+requirements.txt
+.env
+        """,
+        language="text",
+    )
+
+    st.markdown("### İş Akışı")
+
+    st.markdown(
+        """
+        1. Ders notları Yönetici Paneli üzerinden ilgili ders klasörüne yüklenir.
+        2. Yönetici Paneli üzerinden RAG indeksi yenilenir.
+        3. Kullanıcı RAG Arama sayfasında kaynak parçaları test eder.
+        4. Kullanıcı LLM Destekli Cevap sayfasında soru sorar.
+        5. Sistem ilgili kaynak parçaları bulur.
+        6. LLM bu kaynaklara dayanarak açıklayıcı cevap üretir.
+        """
+    )

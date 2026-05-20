@@ -1,47 +1,13 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Virtual environment
-venv/
-.env
-
-# Jupyter
-.ipynb_checkpoints/
-
-# Models
-models/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Editor
-.vscode/
-
-
 .env
 venv/
 __pycache__/
 *.pyc
 
-data/qa_embeddings.npy
-data/qa_metadata.jsonl
-models/
+data/rag_index/
+rag_ders_notlari_docs_raw/
+rag_ders_notlari_docs_raw.zip
 
-# Environment
-.env
-venv/
+.gitignore.txt
+streamlit_app.py
 
-# Python
-__pycache__/
-*.pyc
-
-# Generated embedding/vector files
-data/qa_embeddings.npy
-data/qa_metadata.jsonl
-
-# Models
-models/
+probability-statistics-llm/
