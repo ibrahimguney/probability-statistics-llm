@@ -4,10 +4,11 @@ __pycache__/
 *.pyc
 
 data/rag_index/
+data/*.npy
+data/*.jsonl
+
 rag_ders_notlari_docs_raw/
 rag_ders_notlari_docs_raw.zip
 
-.gitignore.txt
 streamlit_app.py
-
 probability-statistics-llm/
