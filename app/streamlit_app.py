@@ -95,7 +95,91 @@ if "admin_logged_in" not in st.session_state:
 # -------------------------------------------------
 # YARDIMCI FONKSİYONLAR
 # -------------------------------------------------
+def show_admin_help():
+    with st.expander("ℹ️ Yönetici Paneli Nasıl Kullanılır?", expanded=False):
+        st.markdown(
+            """
+            **Yönetici Paneli**, ders notlarını sisteme eklemek ve RAG indeksini yenilemek için kullanılır.
 
+            **Kullanım sırası:**
+
+            1. Yönetici şifresiyle giriş yapın.
+            2. Ders seçin.
+            3. PDF veya DOCX ders notunu yükleyin.
+            4. **Dosyayı Kaydet** butonuna basın.
+            5. **RAG İndeksini Yenile** butonuna basın.
+
+            Yeni dosya yükledikten veya dosya sildikten sonra mutlaka **RAG indeksini yenilemeniz** gerekir.
+            """
+        )
+
+
+def show_rag_help():
+    with st.expander("ℹ️ RAG Arama Nedir?", expanded=False):
+        st.markdown(
+            """
+            **RAG Arama**, ders notları içinden sorunuzla en ilgili metin parçalarını bulur.
+
+            Bu sayfa henüz LLM cevabı üretmez. Sadece şu bilgileri gösterir:
+
+            - Kaynak dosya adı
+            - Parça numarası
+            - Benzerlik skoru
+            - İlgili ders notu metni
+
+            **Ne zaman kullanılır?**
+
+            - Yüklenen dosyaların doğru indekslenip indekslenmediğini kontrol etmek için
+            - Sorunun hangi kaynak parçalara dayandığını görmek için
+            - LLM cevabından önce kaynakları test etmek için
+            """
+        )
+
+
+def show_llm_help():
+    with st.expander("ℹ️ LLM Destekli Cevap Nasıl Çalışır?", expanded=False):
+        st.markdown(
+            """
+            **LLM Destekli Cevap** sayfası iki aşamalı çalışır:
+
+            1. Önce seçilen derse ait ders notlarından ilgili kaynak parçalar bulunur.
+            2. Sonra OpenAI modeli bu kaynaklara dayanarak açıklayıcı cevap üretir.
+
+            **Önemli:**  
+            Cevaplar, yüklenen ders notları temel alınarak üretilir. Ders notunda bilgi yoksa sistem bunu belirtmelidir.
+
+            **İyi soru örnekleri:**
+
+            - Koşullu olasılık nedir?
+            - Bayes teoremi nasıl yorumlanır?
+            - Standart sapma neyi gösterir?
+            - Regresyonda R-kare nasıl açıklanır?
+            """
+        )
+
+
+def show_student_help():
+    with st.expander("ℹ️ Öğrenci İçin Soru Sorma Önerileri", expanded=False):
+        st.markdown(
+            """
+            Daha iyi cevap almak için sorularınızı açık ve ders bağlamına uygun yazın.
+
+            **İyi örnekler:**
+
+            - Koşullu olasılığı formülle açıklar mısın?
+            - Binom dağılımı hangi durumlarda kullanılır?
+            - Standart sapma ile varyans arasındaki fark nedir?
+            - SPSS'te ANOVA çıktısı nasıl yorumlanır?
+
+            **Daha zayıf örnekler:**
+
+            - Bunu anlat
+            - Bu ne?
+            - Örnek ver
+
+            Kısa ama açık soru yazmak, daha doğru cevap alınmasını sağlar.
+            """
+        )
 def create_course_folders():
     RAW_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -188,17 +272,31 @@ if page == "Ana Sayfa":
         st.subheader("🤖 LLM Cevabı")
         st.write("OpenAI destekli açıklayıcı akademik cevap üretilir.")
 
-    st.markdown("## Önerilen Kullanım Sırası")
+    st.markdown("## Kısa Kullanım Kılavuzu")
 
-    st.markdown(
-        """
-        1. **Yönetici Paneli** üzerinden ders notu yükleyin.
-        2. **RAG İndeksini Yenile** butonuna basın.
-        3. **RAG Arama** sayfasında kaynak parçaları test edin.
-        4. **LLM Destekli Cevap** sayfasında akademik cevap üretin.
-        """
-    )
+    with st.expander("🚀 Uygulamayı İlk Kez Kullanıyorum"):
+        st.markdown(
+            """
+            1. Önce **Yönetici Paneli**ne girin.
+            2. Yönetici şifresini yazın.
+            3. Ders seçerek PDF veya DOCX dosyası yükleyin.
+            4. **RAG İndeksini Yenile** butonuna basın.
+            5. **RAG Arama** sayfasında kaynakları test edin.
+            6. **LLM Destekli Cevap** sayfasında soru sorun.
+            """
+        )
 
+    with st.expander("📌 RAG İndeksi Ne Zaman Yenilenmeli?"):
+        st.markdown(
+            """
+            Aşağıdaki durumlarda RAG indeksi yenilenmelidir:
+
+            - Yeni ders notu yüklendiğinde
+            - Ders notu silindiğinde
+            - Ders notu değiştirildiğinde
+            - Kaynak parçalar beklenen şekilde gelmediğinde
+            """
+        )
 
 # -------------------------------------------------
 # YÖNETİCİ PANELİ
@@ -206,6 +304,7 @@ if page == "Ana Sayfa":
 
 elif page == "Yönetici Paneli":
     st.title("🛠️ Yönetici Paneli")
+    show_admin_help()
 
     if not st.session_state.admin_logged_in:
         st.warning("Bu sayfaya erişmek için yönetici şifresi gereklidir.")
@@ -382,6 +481,7 @@ RAG indeks klasörü:
 
 elif page == "RAG Arama":
     st.title("🔎 RAG Arama")
+    show_rag_help()
 
     st.write(
         "Bu bölüm sadece ders notlarından en ilgili kaynak parçaları getirir. "
@@ -448,6 +548,8 @@ elif page == "RAG Arama":
 
 elif page == "LLM Destekli Cevap":
     st.title("🤖 LLM Destekli RAG Cevap")
+    show_llm_help()
+    show_student_help()
 
     st.write(
         "Bu bölüm önce seçilen ders bağlamında ders notlarından ilgili parçaları bulur, "
@@ -634,6 +736,18 @@ elif page == "Dersler":
 
 elif page == "Proje Hakkında":
     st.title("ℹ️ Proje Hakkında")
+    st.markdown("### Sayfaların Görevleri")
+
+    st.markdown(
+        """
+        - **Ana Sayfa:** Uygulamanın genel tanıtımı ve kullanım sırası
+        - **Yönetici Paneli:** Dosya yükleme, silme ve indeks yenileme
+        - **RAG Arama:** Kaynak parçaları test etme
+        - **LLM Destekli Cevap:** Ders notlarına dayalı akademik cevap üretme
+        - **Dersler:** Ders başlıklarını görüntüleme
+        - **Proje Hakkında:** Teknik yapı ve iş akışı
+        """
+    )
 
     st.write(
         "Bu proje, olasılık ve istatistik dersleri için hazırlanmış "
