@@ -36,6 +36,22 @@ if str(BASE_DIR) not in sys.path:
 
 load_dotenv(BASE_DIR / ".env")
 
+def get_secret(name: str, default: str = "") -> str:
+    try:
+        value = st.secrets.get(name, default)
+        if value:
+            return value
+    except Exception:
+        pass
+
+    return os.getenv(name, default)
+
+
+def get_secret(name: str, default: str = "") -> str:
+    try:
+        return st.secrets.get(name, default)
+    except Exception:
+        return os.getenv(name, default)
 
 # -------------------------------------------------
 # PROJE MODÜLLERİ
@@ -131,7 +147,7 @@ if (INDEX_DIR / "documents.json").exists():
 else:
     st.sidebar.warning("RAG indeksi yok")
 
-if os.getenv("OPENAI_API_KEY"):
+if get_secret("OPENAI_API_KEY"):
     st.sidebar.success("LLM aktif")
 else:
     st.sidebar.warning("OPENAI_API_KEY yok")
@@ -200,7 +216,7 @@ elif page == "Yönetici Paneli":
         )
 
         if st.button("Giriş Yap"):
-            correct_password = os.getenv("ADMIN_PASSWORD", "")
+            correct_password = get_secret("ADMIN_PASSWORD", "")
 
             if admin_password_input == correct_password and correct_password:
                 st.session_state.admin_logged_in = True
