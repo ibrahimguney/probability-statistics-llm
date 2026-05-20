@@ -1,22 +1,30 @@
-# Probability and Statistics RAG Assistant
+# Olasılık ve İstatistik LLM
 
-Bu proje, olasılık ve istatistik konularında Türkçe destekli bir öğretici yapay zekâ asistanı geliştirmek amacıyla hazırlanmıştır.
+Bu proje, olasılık ve istatistik dersleri için geliştirilmiş Streamlit tabanlı bir akademik yapay zekâ asistanıdır. Sistem, PDF ve Word ders notlarını okuyarak RAG yöntemiyle ilgili kaynak parçaları bulur ve OpenAI destekli LLM ile kaynaklara dayalı açıklayıcı cevaplar üretir.
 
-Uygulama; yapılandırılmış soru-cevap veri seti, OpenAI embedding modeli, RAG yaklaşımı ve Streamlit arayüzü kullanarak çalışır.
+## Temel Özellikler
 
-## Özellikler
-
-- Olasılık ve istatistik konularında öğretici cevap üretimi
-- Embedding tabanlı kaynak arama
-- RAG destekli cevap üretimi
-- OpenAI LLM bağlantısı
+- PDF ve DOCX ders notu yükleme
+- Ders bazlı klasör yapısı
+- RAG indeksleme
+- Ders bazlı kaynak parça arama
+- LLM destekli akademik cevap üretme
+- Yönetici paneli
+- Yönetici şifresi ile koruma
 - Sohbet geçmişi
-- Kaynak gösterimi
-- Cevap uzunluğu seçimi
-- Öğrenci seviyesi seçimi
-- Soru üretici modül
-- Çoktan seçmeli, klasik, çözümlü ve kısa cevaplı soru üretimi
-- Streamlit web arayüzü
+- Streamlit Cloud uyumu
+- OpenAI API anahtarını güvenli biçimde Secrets üzerinden kullanma
+
+## Kullanılan Teknolojiler
+
+- Python
+- Streamlit
+- OpenAI API
+- scikit-learn
+- pypdf
+- python-docx
+- pandas
+- python-dotenv
 
 ## Proje Yapısı
 
@@ -24,17 +32,23 @@ Uygulama; yapılandırılmış soru-cevap veri seti, OpenAI embedding modeli, RA
 probability-statistics-llm/
 │
 ├── app/
-│   ├── build_embeddings.py
-│   ├── llm_helper.py
-│   ├── retriever.py
-│   └── streamlit_app.py
+│   ├── streamlit_app.py
+│   ├── rag_answer.py
+│   └── llm_rag_answer.py
+│
+├── docs/
+│   └── raw/
+│       ├── olasilik/
+│       ├── istatistik/
+│       ├── spss/
+│       ├── regresyon/
+│       └── arastirma_yontemleri/
 │
 ├── data/
-│   ├── probability_statistics_qa.jsonl
-│   ├── probability_statistics_qa_structured.jsonl
-│   ├── qa_embeddings.npy
-│   └── qa_metadata.jsonl
+│   └── rag_index/
 │
+├── ingest.py
+├── search_rag.py
 ├── requirements.txt
 ├── README.md
 └── .gitignore
